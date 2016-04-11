@@ -1,0 +1,27 @@
+{
+  "manifest_version": 2,
+
+  "name": "AudioReader Prototype",
+  "description": "This prototype will get/set Audiobook duration from Gooogle Play and
+  get/set eBook pages on Google Books",
+  "version": "1.0",
+
+  "browser_action": {
+    "default_icon": "AR_logo.png",
+    "default_popup": "popup.html"
+  },
+
+  "background": {
+    "scripts" : ["background.js"],
+    "persistent": true
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"]
+    }
+  ],
+
+ "permissions": ["activeTab", "https://ajax.googleapis.com/"]
+}
