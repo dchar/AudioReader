@@ -20,42 +20,41 @@ AUDIO_INTRO_BIAS = (3 * 60) + 31
 AUDIO_OUTRO_BIAS = 0 				# undetermined
 MP3_SECONDS_BIAS = 13
 
-# Set global variables
+# Array of file durations
 duration_lst   = [0]
-total_duration =  0
-file_number    =  0
 
 # For each file in the directory, add to total duration
-def scan_directory():
-	global total_duration
-
+def scan_directory(total_dur):
 	for file in os.listdir("."):
 		if file.endswith(".mp3"):
 			audiofile      = eyed3.load(file)
 			file_duration  = audiofile.info.time_secs - MP3_SECONDS_BIAS
-			total_duration += file_duration
+			total_dur     += file_duration
 
 			duration_lst.append(file_duration)
 
+	return total_dur
+
 # Request XML data for the file currently playing in VLC media player
 # Note: Requires Lua http interface within VLC
-# FIXME: currenntly ahead
-def request_position():
-	global file_number, secs_into_audiobook
-	s = requests.Session()
-	s.auth = ('', 'testing')
-	r = s.get('http://localhost:8080/requests/status.xml', verify = False)
-	tree = ET.fromstring(r.content) 
-
+def request_position(file_num, secs_in):
 	temp_file_ratio    = -1.0
 	temp_file_number   = -1
+
+	s = requests.Session()
+	s.auth = ('', 'testing')
+
+	try:
+		r = s.get('http://localhost:8080/requests/status.xml', verify = False)
+	except requests.exceptions.RequestException as e:
+		print(e)
+		sys.exit(1)
 	
+	# Pull XML data for the currently playing file
+	tree = ET.fromstring(r.content)
 	for elem in tree:
-		# Find the ratio representing position in the XML string
 		if (elem.tag == "position"):
 			temp_file_ratio = float(elem.text)
-
-		# Find the track number for the currently playing file
 		elif (elem.tag == "information"):
 			if (elem[0].get('name') == "meta"):
 				for child in elem[0]:
@@ -74,13 +73,16 @@ def request_position():
 		exit()
 	else:
 		# Set the current file number and update seconds into audiobook
-		file_number = temp_file_number
+		file_num = temp_file_number
 		length_of_prior_files = 0
 
-		for i in range(file_number):			
+		for i in range(file_num):			
 			length_of_prior_files += duration_lst[i]
 
-		secs_into_audiobook = length_of_prior_files + secs_into_current
+		secs_in = length_of_prior_files + secs_into_current
+
+
+	return file_num, secs_in
 
 # Using audiobook completion percentage, find and return an approximate page 
 # number
@@ -106,13 +108,14 @@ def test_report(approx_page):
 
 
 # --- INITIALIZATION
+total_duration, file_number = 0, 0
 print("\nLoading audiobook files..")
-scan_directory()
+total_duration = scan_directory(total_duration)
 
 # --- FIXME: WHILE !DONE wait for keystroke to invoke request ---
 # Request information, calculate approximate page number, then report
 print("\nRequesting information..")
-request_position()
+file_number, secs_into_audiobook = request_position(file_number, 0)
 page_num = find_approximate_page(secs_into_audiobook)
 test_report(page_num)
 
