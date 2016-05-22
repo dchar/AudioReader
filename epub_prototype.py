@@ -1,12 +1,87 @@
 # Author: Dylan Ruggeroli
 # Date:	  5 / 9 / 2016
 # Description:
-#   Book class that uses a readers epub progress to try and predict
-#   current page number within a printed version. 
+#   Compares two separate approaches for using phrases contained in a book
+#   to calculate approximate page numbers
 
 import sys
 import numpy as np
 from decimal import *
+
+def main():
+    """
+        Compare progress and polynomial fit methods for predicting reader's
+        location within a book. After comparing using sample input data, the
+        program prompts the user for custom phrases to test. 
+    """
+    # Get total number of pages from command-line
+    total_pages = sys.argv[1]
+    # book_as_text = sys.argv
+    # sample_data  = sys.argv
+
+    ebook = Book(open('texts/wot_sample.txt').read(), total_pages)
+
+    # Open sample data and output files
+    sample = open("sample_data/phrases.txt", "r")
+    output = open("output.txt", "w+")
+
+    # Trim intro/outro, then print book information
+    ebook.WOT_trim()
+    ebook.info()
+    
+    # Actual and observed data for progress method and polynomial method
+    xs, ys, poly_xs, poly_ys = [], [], [], []
+
+    # Store the given sample data
+    sample_phrases, sample_pages = [], []
+    for line in sample:
+        sample_phrases.append(line.split('\t')[0])
+        sample_pages.append(Decimal(line.split('\t')[1]))
+
+    # Generate best-fit for a polynomial with degree 3
+    p = ebook.get_poly(sample_phrases, sample_pages)
+
+    # Calculate approximate page numbers using the progress method as 
+    # well as the polynomial method
+    for i in range(len(sample_phrases)):
+        cur_phrase  = sample_phrases[i]
+        index = ebook.lookup(cur_phrase)
+
+        page_approx = Decimal(ebook.progress(cur_phrase))
+        page_actual = sample_pages[i]
+
+        # Append progress method results
+        xs.append(page_actual)
+        ys.append(page_approx)
+
+        # Append polynomial method results
+        poly_xs.append(page_actual)
+        poly_ys.append(p(index))
+
+    # Perform least-squares tests to measure goodness of fit
+    print("Lookup least-squares:     {}".format(least_squares_test(xs, ys)))
+    print("Polynomial least-squares: {}".format(least_squares_test(poly_xs, poly_ys)))
+
+    # Close the sample text
+    sample.close()
+    output.close()
+
+    # Infinite loop for testing both methods using custom phrases
+    done  = 0
+    while not done:
+        phrase = raw_input('PHRASE: ')
+        if phrase != '':
+            index = ebook.lookup(phrase)
+
+            if index:
+                page = p(index)
+            else:
+                page = 0
+                
+            print ("PAGE:   {}".format(ebook.progress(phrase)))
+            print ("POLY:   {}".format(page))
+        else:
+            done = 1
 
 class Book:
     # String data and mp3 metadata for the book
@@ -32,15 +107,9 @@ class Book:
 
     def progress(self, s):
         """ 
-            Find a string of text within the book and use it predict a potential
-            page number within a physical version
+            Calculate users progress using the index of the given phrase
         """
-        try:
-            index = self.__text.index(s)
-        except ValueError as e:
-            print "ERROR:  ValueError {}".format(e)
-            return 0      
-
+        index = self.lookup(s)    
         getcontext().prec = 6
         index  = Decimal(index)
         length = Decimal(self.text_len)
@@ -48,27 +117,43 @@ class Book:
 
         return (index / length) * pages
 
-    # Trim the indrouctory pages 
+    def get_poly(self, phrases, page_nums):
+        """
+            Using sample data to generate a polynomial function describing the
+            relationship between index number and actual page number
+        """
+        xs, ys = [], []
+
+        for i in range(len(phrases)):
+            index = Decimal(self.lookup(phrases[i]))
+            page_actual = Decimal(page_nums[i])
+
+            xs.append(index)
+            ys.append(page_actual)
+
+        # Generate and return the polynomial function
+        return polynomial_fit(xs, ys, 3)
+
     def WOT_trim(self):
         """
-            Trim intro and outro specific to the Wheel of Time series
+            Trim intro and outro for the text
+
+            Note: This method is specific to the Wheel of Time Series
         """
-		# Trim text before page one (prior to Prologue)
+		# Trim text before the prologue (page one)
         prologue = "PROLOGUE"
         beg_index = self.__text.index(prologue)
 
         tmp = self.__text[beg_index+1:]
         beg_index += tmp.index(prologue)
 
-        # Trim text after the last page (following 'About the Author')
+        # Trim text after 'About the Author' (last page)
         about_author = "Robert Jordan was born in 1948"
         end_index = self.__text.index(about_author)
 
         tmp = self.__text[beg_index + 1 : end_index - 1]
-
         self.__text   = tmp
         self.text_len = len(tmp)
-
 
     def info(self):
         """
@@ -77,6 +162,7 @@ class Book:
         print("\n-- BOOK INFORMATION --")
         print("Length: {}".format(self.text_len))    
         print("Pages:  {}\n".format(self.pages))
+
 
 
 def polynomial_fit(xs, ys, degree):
@@ -95,15 +181,16 @@ def polynomial_fit(xs, ys, degree):
 
     return np.poly1d(fit)
 
-def least_squares_test(deviation):
+def least_squares_test(actual, observed):
     """
         Calculate least-squares figure for measuring goodness of fit
     """
     least_squares = []
     total_sum = 0
 
-    for i in range(len(deviation)):
-        square = deviation[i] ** 2
+    for i in range(len(actual)):
+        diff = float(actual[i]) - float(observed[i])
+        square = diff ** 2
         least_squares.append(square)
 
     for data in least_squares:
@@ -111,55 +198,20 @@ def least_squares_test(deviation):
 
     return total_sum
 
+def page_disparity(page, val):
+    """
+        Takes an array of page numbers and an array of approximated
+        page values, returning the difference between them as an 
+        array of tuples
+    """
+    tuples = []
+    for i in range(len(page)):
+        diff = float(val[i]) - float(page[i])
+        tupl = (page[i], diff)
+        tuples.append(tupl)
+
+    return tuples
+
 
 if __name__ == '__main__':
-	# Instantiate book object and search for sample phrase
-    p = sys.argv[1]
-
-    ebook = Book(open('wot_sample.txt').read(), p)
-    sample = open("phrases.txt", "r")
-    output = open("output.txt", "w+")
-
-    # Trim intro/outro and print book information
-    ebook.WOT_trim()
-    ebook.info()
-    
-    # Declare xs array and ys array for polynomial generation
-    xs, ys = [], []
-
-    # Iterate through sample.txt
-    for line in sample:
-        page_approx = Decimal(ebook.progress(line.split('\t')[0]))
-        page_actual = Decimal(line.split('\t')[1])
-
-        # Calculate disparity between approximated page and actual page
-        diff = page_approx - page_actual
-
-        # Populate xs and ys
-        xs.append(page_actual)
-        ys.append(diff)
-
-        # Print to output file
-        s = "{}   {}".format(page_actual, diff)
-        output.write(s)
-        output.write('\n')
-
-        print(s)
-
-    # Genereate best-fit polynomial for the data
-    p = polynomial_fit(xs,ys,3)
-    print(least_squares_test(ys))
-
-    # INPUT LOOP
-
-    done  = 0
-
-    while not done:
-        # Prompt the user until they exit
-        phrase = raw_input('PHRASE: ')
-
-        if phrase != '':
-            approximate_index = ebook.lookup(phrase)
-            print ("PAGE:   {}".format(ebook.progress(phrase)))
-        else:
-            done = 1
+    main()
